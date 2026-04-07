@@ -3,9 +3,8 @@ title: Smart Study Planner
 emoji: "📘"
 colorFrom: blue
 colorTo: green
-sdk: python
-python_version: "3.10"
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
