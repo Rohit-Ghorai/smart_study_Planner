@@ -1,12 +1,4 @@
----
-title: Smart Study Planner
-emoji: "📘"
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 7860
-pinned: false
----
+
 
 # Reinforcement Learning Based Smart Study Planner
 
