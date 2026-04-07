@@ -1,0 +1,58 @@
+name: smart-study-planner-openenv
+version: 1
+description: Real-world study planning environment with adaptive scheduling and graded tasks.
+
+entrypoints:
+  reset:
+    method: POST
+    path: /openenv/reset
+  state:
+    method: GET
+    path: /openenv/state
+  step:
+    method: POST
+    path: /openenv/step
+  validate:
+    method: GET
+    path: /openenv/validate
+
+action_space:
+  type: discrete
+  values:
+    - diagnose_gaps
+    - prioritize_weak_subject
+    - schedule_deep_work
+    - add_revision_block
+    - add_mock_test
+    - ignore_signal
+
+observation_space:
+  type: object
+  fields:
+    task_id: string
+    title: string
+    difficulty: string
+    scenario: string
+    step_count: integer
+    max_steps: integer
+    score: number
+    done: boolean
+    action_space: array[string]
+
+reward:
+  range: [0.0, 1.0]
+  note: Reward reflects partial progress and final readiness per step.
+
+tasks:
+  - task_id: easy-01
+    difficulty: easy
+    title: Recover from one missed slot
+    agent_grader: heuristic_reward_grader
+  - task_id: medium-01
+    difficulty: medium
+    title: Balance fatigue and consistency
+    agent_grader: heuristic_reward_grader
+  - task_id: hard-01
+    difficulty: hard
+    title: Final-week exam rescue
+    agent_grader: heuristic_reward_grader
