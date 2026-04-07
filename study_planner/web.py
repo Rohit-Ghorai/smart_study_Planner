@@ -34,6 +34,7 @@ from .db import (
     update_notification_prefs,
 )
 from .environment import StudyPlannerEnvironment
+from .openenv_env import OpenEnvStudyPlanner, state_to_dict, step_to_dict
 from .persistence import load_q_table, save_q_table
 from .trainer import (
     generate_greedy_schedule,
@@ -901,12 +902,15 @@ def create_app() -> Flask:
         template_folder=str(project_root / "templates"),
         static_folder=str(project_root / "static"),
     )
+    app.url_map.strict_slashes = False
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "rl-study-planner-secret-key")
     # Spaces renders apps in an iframe, so session cookies must allow cross-site usage.
     app.config["SESSION_COOKIE_SAMESITE"] = "None"
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["DB_PATH"] = db_path
+    openenv = OpenEnvStudyPlanner(seed=42)
+    openenv.reset("easy-01")
 
     def current_language() -> str:
         selected = session.get("lang", "en")
@@ -1197,20 +1201,55 @@ def create_app() -> Flask:
         )
         return {"success": True, "settings": updated}
 
+    @app.post("/reset")
     @app.post("/openenv/reset")
     def openenv_reset():
-        # Compatibility endpoint for automated submission checks.
-        return {"ok": True, "message": "environment reset acknowledged"}, 200
+        payload = request.get_json(silent=True) or {}
+        task_id = payload.get("task_id") if isinstance(payload, dict) else None
+        state = openenv.reset(task_id=task_id)
+        return {"ok": True, "observation": state_to_dict(state)}, 200
 
+    @app.get("/state")
+    @app.get("/openenv/state")
+    def openenv_state():
+        state = openenv.state()
+        return {"ok": True, "observation": state_to_dict(state)}, 200
+
+    @app.post("/step")
+    @app.post("/openenv/step")
+    def openenv_step():
+        payload = request.get_json(silent=True) or {}
+        action = ""
+        if isinstance(payload, dict):
+            action = str(payload.get("action", "")).strip()
+        if not action:
+            return {"ok": False, "error": "Missing action"}, 400
+
+        result = openenv.step(action)
+        return {"ok": True, **step_to_dict(result)}, 200
+
+    @app.get("/validate")
     @app.get("/openenv/validate")
     def openenv_validate_get():
         return {
             "ok": True,
             "service": "smart-study-planner",
             "status": "ready",
-            "endpoints": ["/openenv/reset", "/openenv/validate"],
+            "endpoints": [
+                "/reset",
+                "/state",
+                "/step",
+                "/validate",
+                "/openenv/reset",
+                "/openenv/state",
+                "/openenv/step",
+                "/openenv/validate",
+            ],
+            "tasks": openenv.tasks(),
+            "reward_range": [0.0, 1.0],
         }, 200
 
+    @app.post("/validate")
     @app.post("/openenv/validate")
     def openenv_validate_post():
         payload = request.get_json(silent=True) or {}
@@ -1219,6 +1258,8 @@ def create_app() -> Flask:
             "service": "smart-study-planner",
             "status": "ready",
             "received": payload,
+            "tasks": openenv.tasks(),
+            "reward_range": [0.0, 1.0],
         }, 200
 
     return app
