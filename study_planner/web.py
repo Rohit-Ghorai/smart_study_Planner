@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -900,7 +901,11 @@ def create_app() -> Flask:
         template_folder=str(project_root / "templates"),
         static_folder=str(project_root / "static"),
     )
-    app.config["SECRET_KEY"] = "rl-study-planner-secret-key"
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "rl-study-planner-secret-key")
+    # Spaces renders apps in an iframe, so session cookies must allow cross-site usage.
+    app.config["SESSION_COOKIE_SAMESITE"] = "None"
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["DB_PATH"] = db_path
 
     def current_language() -> str:
