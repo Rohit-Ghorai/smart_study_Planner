@@ -10,6 +10,7 @@ from study_planner.openenv_env import OpenEnvStudyPlanner
 # Required environment variables for submission.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+API_KEY = os.getenv("API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Optional - if using from_docker_image().
@@ -35,9 +36,11 @@ def _build_client() -> Any:
     openai_module = importlib.import_module("openai")
     OpenAI = getattr(openai_module, "OpenAI")
 
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN is required in environment.")
-    return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    # Validator expects calls to go through injected LiteLLM proxy vars.
+    if "API_BASE_URL" not in os.environ or "API_KEY" not in os.environ:
+        raise RuntimeError("API_BASE_URL and API_KEY are required in environment.")
+
+    return OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
 
 
 def run_inference(user_prompt: str, temperature: float = 0.2) -> str:
@@ -116,7 +119,7 @@ def main() -> None:
     parser.add_argument(
         "--mode",
         choices=["baseline", "llm"],
-        default="baseline",
+        default="llm",
         help="baseline: deterministic scoring; llm: OpenAI-compatible completion",
     )
     args = parser.parse_args()
