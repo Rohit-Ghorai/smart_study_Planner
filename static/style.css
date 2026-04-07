@@ -806,7 +806,8 @@ h2 {
   padding: 12px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
   background: rgba(255, 255, 255, 0.75);
 }
@@ -824,16 +825,27 @@ h2 {
 .tracker-main {
   display: grid;
   gap: 4px;
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .tracker-action {
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .tracker-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.tracker-actions .ghost-button {
+  white-space: normal;
+  text-align: center;
 }
 
 .notifications-list {
