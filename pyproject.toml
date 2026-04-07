@@ -14,10 +14,12 @@ dependencies = [
   "Flask",
   "reportlab",
   "openai",
+  "openenv-core>=0.2.0",
 ]
 
 [project.scripts]
 study-planner = "study_planner.cli:run_cli"
+server = "server.app:main"
 
 [tool.setuptools]
-packages = ["study_planner"]
+packages = ["study_planner", "server"]
