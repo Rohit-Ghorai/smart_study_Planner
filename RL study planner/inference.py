@@ -16,11 +16,19 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 
-def _log(stage: str, message: str, **extra: Any) -> None:
-    payload: Dict[str, Any] = {"message": message}
-    if extra:
-        payload["data"] = extra
-    print(f"{stage} {json.dumps(payload, ensure_ascii=True)}", flush=True)
+def _format_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=True)
+
+
+def _emit_block(block: str, **fields: Any) -> None:
+    parts = [f"[{block}]"]
+    for key, value in fields.items():
+        parts.append(f"{key}={_format_value(value)}")
+    print(" ".join(parts), flush=True)
 
 
 def _build_client() -> Any:
@@ -33,11 +41,11 @@ def _build_client() -> Any:
 
 
 def run_inference(user_prompt: str, temperature: float = 0.2) -> str:
-    _log("START", "inference_started", model=MODEL_NAME)
-    _log("STEP", "client_initialization")
+    _emit_block("START", task="llm_inference", model=MODEL_NAME)
+    _emit_block("STEP", task="llm_inference", step=1, action="client_initialization")
     client = _build_client()
 
-    _log("STEP", "sending_chat_completion", prompt_chars=len(user_prompt))
+    _emit_block("STEP", task="llm_inference", step=2, action="chat_completion", prompt_chars=len(user_prompt))
     response = client.chat.completions.create(
         model=MODEL_NAME,
         temperature=temperature,
@@ -54,13 +62,12 @@ def run_inference(user_prompt: str, temperature: float = 0.2) -> str:
     )
 
     text = (response.choices[0].message.content or "").strip()
-    _log("END", "inference_completed", output_chars=len(text))
+    _emit_block("END", task="llm_inference", score=1.0, steps=2, output_chars=len(text))
     return text
 
 
 def run_baseline() -> Dict[str, Any]:
     """Deterministic baseline policy for reproducible scoring."""
-    _log("START", "baseline_started")
     env = OpenEnvStudyPlanner(seed=42)
     task_order = ["easy-01", "medium-01", "hard-01"]
     policy = [
@@ -73,7 +80,7 @@ def run_baseline() -> Dict[str, Any]:
 
     results = []
     for task_id in task_order:
-        _log("STEP", "task_started", task_id=task_id)
+        _emit_block("START", task=task_id)
         env.reset(task_id=task_id)
         done = False
         step_index = 0
@@ -83,12 +90,22 @@ def run_baseline() -> Dict[str, Any]:
             result = env.step(action)
             done = result.done
             final_score = result.score
+            _emit_block(
+                "STEP",
+                task=task_id,
+                step=step_index + 1,
+                action=action,
+                reward=result.reward,
+                score=round(result.score, 4),
+            )
             step_index += 1
-        results.append({"task_id": task_id, "score": round(final_score, 4)})
+        final_score = round(final_score, 4)
+        passed = final_score >= 0.7
+        _emit_block("END", task=task_id, score=final_score, steps=step_index, passed=passed)
+        results.append({"task_id": task_id, "score": final_score})
 
     avg_score = round(sum(item["score"] for item in results) / len(results), 4)
     payload = {"scores": results, "average_score": avg_score}
-    _log("END", "baseline_completed", average_score=avg_score)
     return payload
 
 
@@ -115,3 +132,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
