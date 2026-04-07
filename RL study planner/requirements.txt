@@ -1,5 +1,0 @@
-numpy
-matplotlib
-Flask
-reportlab
-
