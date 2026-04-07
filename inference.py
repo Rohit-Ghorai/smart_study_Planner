@@ -1,9 +1,10 @@
 import argparse
+import importlib
 import json
 import os
 from typing import Any, Dict
 
-from openai import OpenAI
+from study_planner.openenv_env import OpenEnvStudyPlanner
 
 
 # Required environment variables for submission.
@@ -22,7 +23,10 @@ def _log(stage: str, message: str, **extra: Any) -> None:
     print(f"{stage} {json.dumps(payload, ensure_ascii=True)}", flush=True)
 
 
-def _build_client() -> OpenAI:
+def _build_client() -> Any:
+    openai_module = importlib.import_module("openai")
+    OpenAI = getattr(openai_module, "OpenAI")
+
     if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is required in environment.")
     return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
@@ -54,14 +58,59 @@ def run_inference(user_prompt: str, temperature: float = 0.2) -> str:
     return text
 
 
+def run_baseline() -> Dict[str, Any]:
+    """Deterministic baseline policy for reproducible scoring."""
+    _log("START", "baseline_started")
+    env = OpenEnvStudyPlanner(seed=42)
+    task_order = ["easy-01", "medium-01", "hard-01"]
+    policy = [
+        "diagnose_gaps",
+        "prioritize_weak_subject",
+        "schedule_deep_work",
+        "add_revision_block",
+        "add_mock_test",
+    ]
+
+    results = []
+    for task_id in task_order:
+        _log("STEP", "task_started", task_id=task_id)
+        env.reset(task_id=task_id)
+        done = False
+        step_index = 0
+        final_score = 0.0
+        while not done:
+            action = policy[min(step_index, len(policy) - 1)]
+            result = env.step(action)
+            done = result.done
+            final_score = result.score
+            step_index += 1
+        results.append({"task_id": task_id, "score": round(final_score, 4)})
+
+    avg_score = round(sum(item["score"] for item in results) / len(results), 4)
+    payload = {"scores": results, "average_score": avg_score}
+    _log("END", "baseline_completed", average_score=avg_score)
+    return payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run OpenAI-compatible inference using HF router.")
-    parser.add_argument("prompt", help="User prompt text")
+    parser.add_argument("prompt", nargs="?", default="Give a short study strategy for exam week.")
     parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument(
+        "--mode",
+        choices=["baseline", "llm"],
+        default="baseline",
+        help="baseline: deterministic scoring; llm: OpenAI-compatible completion",
+    )
     args = parser.parse_args()
 
-    result = run_inference(args.prompt, temperature=args.temperature)
-    print(result)
+    if args.mode == "llm":
+        result = run_inference(args.prompt, temperature=args.temperature)
+        print(result)
+        return
+
+    baseline = run_baseline()
+    print(json.dumps(baseline, ensure_ascii=True))
 
 
 if __name__ == "__main__":

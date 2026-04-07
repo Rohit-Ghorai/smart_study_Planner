@@ -87,6 +87,73 @@ If you want to test the same startup pattern locally, run:
 python app.py
 ```
 
+## OpenEnv Specification (Phase 1)
+
+This repository includes a real-world study planning environment compatible with OpenEnv checks.
+
+- Spec file: `openenv.yaml`
+- Runtime endpoints:
+	- `POST /openenv/reset`
+	- `GET /openenv/state`
+	- `POST /openenv/step`
+	- `GET /openenv/validate`
+
+### Real-world task design
+
+The environment simulates practical student planning situations (not toy games):
+
+- `easy-01`: Recover from one missed study slot.
+- `medium-01`: Balance weak subjects and fatigue.
+- `hard-01`: Final-week exam rescue under time pressure.
+
+Each task uses an agent grader (`heuristic_reward_grader`) and produces scores in the `0.0-1.0` range.
+
+### Action space
+
+Discrete actions used by agents:
+
+- `diagnose_gaps`
+- `prioritize_weak_subject`
+- `schedule_deep_work`
+- `add_revision_block`
+- `add_mock_test`
+- `ignore_signal`
+
+### Observation space
+
+Each state includes:
+
+- `task_id`, `title`, `difficulty`, `scenario`
+- `step_count`, `max_steps`
+- `score` in range `0.0-1.0`
+- `done`
+- available `action_space`
+
+### Reward function and grading
+
+- Reward emits partial-progress signals every step.
+- Final score remains in `0.0-1.0`.
+- Each task has a pass threshold and action-specific grading behavior.
+
+### Baseline inference (reproducible)
+
+Baseline script: `inference.py`
+
+Run deterministic baseline scoring:
+
+```bash
+python inference.py --mode baseline
+```
+
+Optional LLM mode (OpenAI-compatible client):
+
+```bash
+set API_BASE_URL=https://router.huggingface.co/v1
+set MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
+set HF_TOKEN=your_hf_token
+python inference.py "Give me a study strategy" --mode llm
+```
+
 ## New user features
 
 - Create an account from `/register` and login from `/login`.
