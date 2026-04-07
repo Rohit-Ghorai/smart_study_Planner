@@ -1,0 +1,6 @@
+numpy
+matplotlib
+Flask
+reportlab
+openai
+

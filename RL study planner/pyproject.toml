@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-study-planner"
+version = "0.1.0"
+description = "Reinforcement-learning based study planner with OpenEnv-compatible endpoints"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "matplotlib",
+  "Flask",
+  "reportlab",
+  "openai",
+]
+
+[project.scripts]
+study-planner = "study_planner.cli:run_cli"
+
+[tool.setuptools]
+packages = ["study_planner"]
