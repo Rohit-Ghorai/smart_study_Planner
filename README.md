@@ -1,3 +1,14 @@
+---
+title: Smart Study Planner
+emoji: "📘"
+colorFrom: blue
+colorTo: green
+sdk: python
+python_version: "3.10"
+app_file: app.py
+pinned: false
+---
+
 # Reinforcement Learning Based Smart Study Planner
 
 This project is a **browser-based website** that uses **Q-Learning** to build a daily study schedule for a student. The agent learns which subject to study in each time slot so that it maximizes useful study time and avoids fatigue from poor planning.
