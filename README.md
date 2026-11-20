@@ -16,17 +16,17 @@ This project is a **browser-based website** that uses **Q-Learning** to build a 
 
 - Time slots: Morning, Afternoon, Evening
 - Actions: Study OS, Study Java, Study DSA, Take Break
-- State: current time slot + last studied subject
+- State: time slot, energy, previous action category, compact per-subject effort buckets, and break bucket
 - Reward design with difficulty, confidence, repeated-subject penalty, break penalty, and fatigue penalty
 - Epsilon-greedy Q-learning training
 - Reward graph saved with matplotlib
 - RL schedule vs random schedule comparison
-- Save and load Q-table support
+- Safe numeric Q-table save/load with dimensions, labels, and metadata validation
 - Simple Flask website with a modern responsive UI
 - User accounts (register/login/logout)
 - Per-user saved plan history (SQLite)
 - Downloadable PDF timetable from history
-- English/Hindi language toggle
+- English interface
 - Weekly planner calendar view
 
 ## How Q-Learning works here
@@ -43,9 +43,14 @@ During training:
 
 ### State, action, reward
 
-- **State**: `(current time slot, last studied subject)`
-- **Action**: one of the study subjects or `Break`
-- **Reward**: positive for studying useful subjects, negative for repeating the same subject too often or taking too many breaks
+- **State**: `(time, energy, previous action, effort buckets, break bucket)`. Effort is
+  capped into `0`, `1`, and `2+` per subject so the representation remains
+  tabular while retaining the information used by transitions and rewards.
+- **Action**: regular study, deep study, revision, mock test for each subject,
+  or Meditation, Snack, and Water_Break.
+- **Reward**: need-aware study value plus urgency and coverage signals, with
+  diminishing returns and energy/break penalties. Deep study consumes two
+  integer time slots; every other action consumes one.
 
 ### Exploration vs exploitation
 
@@ -166,6 +171,13 @@ python inference.py "Give me a study strategy" --mode llm
 
 - `reward_vs_episodes.png` - reward curve
 - `saved_q_table.npz` - learned Q-table
+
+## Engineering notes
+
+- Q-learning and SARSA use independent tables and equivalent training settings.
+- OpenEnv sessions are isolated per client and reject unknown actions.
+- SQLite foreign keys are enabled and user-owned queries always include the
+  authenticated user id.
 
 ## Sample run output
 

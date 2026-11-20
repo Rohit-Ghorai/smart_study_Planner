@@ -136,7 +136,7 @@ def generate_greedy_schedule_with_explanations(
         action_name = environment.actions[action_index]
         
         # Generate explanation
-        slot_index, energy_level, last_action_type = environment.state_space[state_index]
+        slot_index, energy_level, last_action_type, _, _ = environment.state_space[state_index]
         time_slot = environment.time_slots[slot_index]
         
         reasons = []
@@ -246,7 +246,7 @@ def format_q_table(environment: StudyPlannerEnvironment, agent: QLearningAgent) 
     lines.append("-" * len(lines[0]))
 
     for state_index, state in enumerate(environment.state_space):
-        slot_index, energy_level, last_action_type = state
+        slot_index, energy_level, last_action_type, _, _ = state
         slot_name = environment.time_slots[slot_index]
         label = f"{slot_name} / E{energy_level} / {last_action_type}"
         q_values = [f"{value:>14.2f}" for value in agent.q_table[state_index]]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import product
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -8,10 +9,10 @@ import numpy as np
 from .config import StudyPlannerConfig
 
 
-# Enhanced state: (time_slot, energy_level, action_type)
-# energy_level: 1-5 (1=exhausted, 5=fresh)
-# action_type: "Idle", "Study", "Review", "Mock", "Break"
-State = Tuple[int, int, str]
+# State includes a compact, Markov-sufficient progress signature.  Each
+# subject's effort is bucketed at 0, 1, or 2+ slots and break history at 0,
+# 1, or 2+ breaks to keep tabular learning tractable.
+State = Tuple[int, int, str, Tuple[int, ...], int]
 
 
 @dataclass
@@ -46,15 +47,18 @@ class StudyPlannerEnvironment:
         
         self.actions = self.base_actions + self.deep_study_actions + self.revision_actions + self.mock_test_actions + self.break_actions
         
-        # Enhanced state space: (time_slot, energy_level, last_action_type)
+        # Enhanced state space: (time, energy, previous category, progress, breaks).
         energy_levels = range(1, 6)  # 1 to 5
-        last_action_types = ["Idle", "Study", "Review", "Mock", "Break"]
+        last_action_types = ["Idle", "Study", "Deep", "Review", "Mock", "Break"]
+        progress_signatures = tuple(product(range(3), repeat=len(self.subjects)))
         
         self.state_space: List[State] = [
-            (slot_index, energy, action_type)
+            (slot_index, energy, action_type, tuple(progress), break_count)
             for slot_index in range(len(self.time_slots))
             for energy in energy_levels
             for action_type in last_action_types
+            for progress in progress_signatures
+            for break_count in range(3)
         ]
         self.state_to_index: Dict[State, int] = {state: index for index, state in enumerate(self.state_space)}
         self.action_to_index: Dict[str, int] = {action: index for index, action in enumerate(self.actions)}
@@ -82,7 +86,17 @@ class StudyPlannerEnvironment:
         return self._current_state()
 
     def _current_state(self) -> State:
-        return (self.current_slot_index, self.energy_level, self.last_action_type)
+        progress = tuple(
+            min(2, int(progress.total_effort))
+            for progress in (self.subject_progress[subject] for subject in self.subjects)
+        )
+        return (
+            self.current_slot_index,
+            self.energy_level,
+            self.last_action_type,
+            progress,
+            min(2, self.break_count),
+        )
 
     def _parse_action(self, action: str) -> Tuple[str, str]:
         """Parse action into (subject, action_type).
@@ -90,7 +104,7 @@ class StudyPlannerEnvironment:
         Returns: (subject, type) where type in ["Study", "Deep", "Review", "Mock", "Break"]
         """
         if action in self.break_actions:
-            return ("None", "Break")
+            return (action, "Break")
         if "_Mock" in action:
             return (action.replace("_Mock", ""), "Mock")
         if "_Deep" in action:
@@ -105,13 +119,14 @@ class StudyPlannerEnvironment:
         strength = self.config.strengths.get(subject, 3)
         progress = self.subject_progress.get(subject, SubjectProgress())
 
-        # Base rewards by action type
+        # Base rewards are deliberately close together so repeated high-value
+        # actions cannot dominate without matching the student's needs.
         if action_type == "Deep":
-            base_reward = 8.0  # Highest reward for deep study
+            base_reward = 6.0
         elif action_type == "Mock":
-            base_reward = 10.0  # Highest value: tests knowledge
+            base_reward = 5.0
         elif action_type == "Review":
-            base_reward = 3.0  # Lower reward for light review
+            base_reward = 4.0
         else:  # Regular study
             base_reward = 5.0
 
@@ -122,36 +137,30 @@ class StudyPlannerEnvironment:
         adaptive_bonus = float(np.clip(difficulty - strength, -3, 3))
 
         # Time pressure bonus (more slots remaining = more bonus)
-        time_bonus = float(max(0, len(self.time_slots) - self.current_slot_index)) * 0.3
+        time_bonus = float(max(0, len(self.time_slots) - self.current_slot_index)) * 0.2
 
         # Exam urgency bonus
         exam_bonus = self.config.exam_urgency_bonus()
 
         # Diminishing returns if studied same subject too much
-        if action_type == "Deep":
-            diminishing = -(progress.deep_study_count * 0.5)
-        elif action_type == "Mock":
-            diminishing = -(progress.mock_test_count * 1.0)
-        elif action_type == "Review":
-            diminishing = -(progress.revision_count * 0.2)
-        else:
-            diminishing = 0.0
+        diminishing = -min(2.0, min(2, int(progress.total_effort)) * 0.5)
 
         # Energy penalty if too tired
         energy_penalty = 0.0 if self.energy_level >= 3 else (3 - self.energy_level) * -1.5
 
         total_reward = base_reward + difficulty_bonus + adaptive_bonus + time_bonus + exam_bonus + diminishing + energy_penalty
 
-        # Update progress
+        # Update progress before constructing the next state; effort uses the
+        # actual duration of the selected action.
         if action_type == "Deep":
             progress.deep_study_count += 1
-            progress.total_effort += 1.5
+            progress.total_effort += 2.0
         elif action_type == "Mock":
             progress.mock_test_count += 1
             progress.total_effort += 1.0
         elif action_type == "Review":
             progress.revision_count += 1
-            progress.total_effort += 0.5
+            progress.total_effort += 1.0
         else:
             progress.total_effort += 1.0
 
@@ -159,7 +168,7 @@ class StudyPlannerEnvironment:
 
     def _break_reward(self, break_type: str) -> float:
         """Calculate reward for taking a break."""
-        reward = 1.0 if self.last_action_type == "Study" else 0.0
+        reward = 1.0 if self.last_action_type in {"Study", "Deep", "Review", "Mock"} else 0.0
 
         # Penalty if too many breaks
         if self.break_count >= 2:
@@ -183,32 +192,27 @@ class StudyPlannerEnvironment:
         """Execute one action and return (next_state, reward, done)."""
         if self.current_slot_index >= len(self.time_slots):
             return None, 0.0, True
+        if not isinstance(action_index, (int, np.integer)) or not 0 <= int(action_index) < self.num_actions:
+            raise ValueError(f"Invalid action index: {action_index!r}")
 
         action = self.actions[action_index]
         subject, action_type = self._parse_action(action)
 
         # Calculate reward
         if action_type == "Break":
-            reward = self._break_reward(subject)
+            reward = self._break_reward(action)
             self.break_count += 1
             self.energy_level = min(5, self.energy_level + 2)  # Restore energy
             self.last_action_type = "Break"
         else:
             reward = self._subject_reward(subject, action_type)
-            self.total_study_effort += 1.0
-            self.energy_level = max(1, self.energy_level - 1)  # Consume energy
-            # Normalize all study types to "Study" in state space
-            self.last_action_type = "Study"
+            duration = 2 if action_type == "Deep" else 1
+            self.total_study_effort += duration
+            self.energy_level = max(1, self.energy_level - (2 if action_type == "Deep" else 1))
+            self.last_action_type = action_type
 
         # Advance time based on action intensity
-        if action_type == "Deep":
-            time_step = 2  # Deep study takes 1.5 slots (rounds to 2 for discrete)
-        elif action_type == "Mock":
-            time_step = 1  # Mock test takes 1 slot
-        elif action_type == "Review":
-            time_step = 1  # Review takes ~1 slot
-        else:
-            time_step = 1
+        time_step = 2 if action_type == "Deep" else 1
 
         self.current_slot_index += time_step
 

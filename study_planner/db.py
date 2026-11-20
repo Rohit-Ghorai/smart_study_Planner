@@ -11,6 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 def _connect(db_path: str) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path)
+    connection.execute("PRAGMA foreign_keys = ON")
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -97,6 +98,13 @@ def init_db(db_path: str) -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
             """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(user_id, id DESC)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_progress_user_date ON progress_events(user_id, recorded_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_completions_user_date ON completions(user_id, recorded_at)"
         )
         connection.commit()
 

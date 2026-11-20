@@ -20,8 +20,7 @@
         <a href="/analytics" class="active-nav">{{ t('nav_analytics') }}</a>
       </nav>
       <div class="top-actions">
-        <a href="/set-language/en" class="lang-chip {% if current_lang == 'en' %}active{% endif %}">EN</a>
-        <a href="/set-language/hi" class="lang-chip {% if current_lang == 'hi' %}active{% endif %}">HI</a>
+        <span class="lang-chip active" aria-label="Application language">EN</span>
         {% if user %}
           <span class="user-chip">{{ t('hello') }}, {{ user.username }}</span>
           <a href="/logout" class="auth-link">{{ t('nav_logout') }}</a>

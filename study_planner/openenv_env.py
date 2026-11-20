@@ -153,7 +153,9 @@ class OpenEnvStudyPlanner:
                 info={"reason": "episode_already_done"},
             )
 
-        base_reward = self._active_task.action_rewards.get(action, -0.1)
+        if action not in self.ACTION_SPACE:
+            raise ValueError(f"Unknown action: {action}")
+        base_reward = max(0.0, min(1.0, self._active_task.action_rewards[action]))
         self._step_count += 1
         self._score = max(0.0, min(1.0, self._score + base_reward))
 

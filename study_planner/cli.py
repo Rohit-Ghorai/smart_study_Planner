@@ -163,7 +163,7 @@ def run_cli() -> None:
         agent.q_table,
         [
             f"{environment.time_slots[slot_index]} / Energy {energy_level} / {last_action_type}"
-            for slot_index, energy_level, last_action_type in environment.state_space
+            for slot_index, energy_level, last_action_type, progress, breaks in environment.state_space
         ],
         environment.actions,
     )

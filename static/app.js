@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const subjectsList = document.getElementById("subjects-list");
   const subjectCountInput = document.getElementById("subject_count");
   const addButton = document.getElementById("add-subject");
-  const presetButtons = document.querySelectorAll(".preset-button");
+  const presetButtons = document.querySelectorAll(".preset-card");
   const resultsSection = document.getElementById("results-section");
 
   const generationCard = document.getElementById("generation-progress");
@@ -17,6 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const epsilonInput = document.getElementById("epsilon");
   const epsilonDecayInput = document.getElementById("epsilon_decay");
   const minEpsilonInput = document.getElementById("min_epsilon");
+  const trainingPresetInput = document.getElementById("training_preset");
+  const trainingSummary = document.getElementById("training-summary");
   const notificationList = document.getElementById("notification-list");
   const notificationBadge = document.getElementById("notification-badge");
   const notificationPopover = document.getElementById("notification-popover");
@@ -459,39 +461,77 @@ document.addEventListener("DOMContentLoaded", () => {
 
   addButton?.addEventListener("click", () => createRow());
 
+  const presetValues = {
+    quick: {
+      label: "Quick",
+      summary: "400 practice rounds for a faster plan.",
+      episodes: "400",
+      alpha: "0.12",
+      gamma: "0.85",
+      epsilon: "1.0",
+      epsilonDecay: "0.985",
+      minEpsilon: "0.08",
+    },
+    balanced: {
+      label: "Balanced",
+      summary: "1,500 practice rounds with a balanced learning approach.",
+      episodes: "1500",
+      alpha: "0.10",
+      gamma: "0.90",
+      epsilon: "1.0",
+      epsilonDecay: "0.995",
+      minEpsilon: "0.05",
+    },
+    deep: {
+      label: "Deep Learning",
+      summary: "3,500 practice rounds with more extensive exploration.",
+      episodes: "3500",
+      alpha: "0.08",
+      gamma: "0.95",
+      epsilon: "1.0",
+      epsilonDecay: "0.997",
+      minEpsilon: "0.03",
+    },
+  };
+
+  function updateTrainingSummary(presetName, customized = false) {
+    const preset = presetValues[presetName] || presetValues.balanced;
+    if (trainingSummary) {
+      trainingSummary.querySelector("strong").textContent =
+        `${preset.label} selected${customized ? " · advanced values customized" : ""}`;
+      trainingSummary.querySelector("span").textContent = preset.summary;
+    }
+  }
+
+  function applyPreset(presetName) {
+    const preset = presetValues[presetName] || presetValues.balanced;
+    episodesInput.value = preset.episodes;
+    alphaInput.value = preset.alpha;
+    gammaInput.value = preset.gamma;
+    epsilonInput.value = preset.epsilon;
+    epsilonDecayInput.value = preset.epsilonDecay;
+    minEpsilonInput.value = preset.minEpsilon;
+    if (trainingPresetInput) {
+      trainingPresetInput.value = presetName;
+    }
+    presetButtons.forEach((element) => {
+      const selected = element.dataset.preset === presetName;
+      element.classList.toggle("active", selected);
+      element.setAttribute("aria-checked", selected ? "true" : "false");
+    });
+    updateTrainingSummary(presetName);
+  }
+
   presetButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const presetName = button.dataset.preset;
+      applyPreset(button.dataset.preset);
+    });
+  });
 
-      if (presetName === "fast") {
-        episodesInput.value = "400";
-        alphaInput.value = "0.12";
-        gammaInput.value = "0.85";
-        epsilonInput.value = "1.0";
-        epsilonDecayInput.value = "0.985";
-        minEpsilonInput.value = "0.08";
-      }
-
-      if (presetName === "balanced") {
-        episodesInput.value = "1500";
-        alphaInput.value = "0.10";
-        gammaInput.value = "0.90";
-        epsilonInput.value = "1.0";
-        epsilonDecayInput.value = "0.995";
-        minEpsilonInput.value = "0.05";
-      }
-
-      if (presetName === "deep") {
-        episodesInput.value = "3500";
-        alphaInput.value = "0.08";
-        gammaInput.value = "0.95";
-        epsilonInput.value = "1.0";
-        epsilonDecayInput.value = "0.997";
-        minEpsilonInput.value = "0.03";
-      }
-
-      presetButtons.forEach((element) => element.classList.remove("active"));
-      button.classList.add("active");
+  [episodesInput, alphaInput, gammaInput, epsilonInput, epsilonDecayInput, minEpsilonInput].forEach((input) => {
+    input?.addEventListener("input", () => {
+      const selected = trainingPresetInput?.value || "balanced";
+      updateTrainingSummary(selected, true);
     });
   });
 

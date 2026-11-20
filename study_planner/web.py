@@ -35,7 +35,7 @@ from .db import (
 )
 from .environment import StudyPlannerEnvironment
 from .openenv_env import OpenEnvStudyPlanner, state_to_dict, step_to_dict
-from .persistence import load_q_table, save_q_table
+from .persistence import ModelValidationError, load_q_table, save_q_table
 from .trainer import (
     generate_greedy_schedule,
     generate_greedy_schedule_with_explanations,
@@ -316,6 +316,33 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
 }
 
+TRAINING_PRESETS: Dict[str, Dict[str, float | int]] = {
+    "quick": {
+        "episodes": 400,
+        "alpha": 0.12,
+        "gamma": 0.85,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.985,
+        "min_epsilon": 0.08,
+    },
+    "balanced": {
+        "episodes": 1500,
+        "alpha": 0.10,
+        "gamma": 0.90,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.995,
+        "min_epsilon": 0.05,
+    },
+    "deep": {
+        "episodes": 3500,
+        "alpha": 0.08,
+        "gamma": 0.95,
+        "epsilon": 1.0,
+        "epsilon_decay": 0.997,
+        "min_epsilon": 0.03,
+    },
+}
+
 
 @dataclass
 class TrainingResult:
@@ -386,17 +413,26 @@ def _build_config_from_form(form: Dict[str, str]) -> StudyPlannerConfig:
     difficulties = [_parse_int(row["difficulty"], 3) for row in subject_rows]
     strengths = [_parse_int(row["strength"], 3) for row in subject_rows]
 
+    preset_name = str(form.get("training_preset", "balanced")).strip().lower()
+    preset = TRAINING_PRESETS.get(preset_name, TRAINING_PRESETS["balanced"])
+
+    def preset_int(name: str) -> int:
+        return _parse_int(form.get(name, str(preset[name])), int(preset[name]))
+
+    def preset_float(name: str) -> float:
+        return _parse_float(form.get(name, str(preset[name])), float(preset[name]))
+
     return StudyPlannerConfig.from_input(
         subjects=subjects,
         difficulties=difficulties,
         strengths=strengths,
         exam_date_text=form.get("exam_date", "").strip(),
-        episodes=_parse_int(form.get("episodes", "1500"), 1500),
-        alpha=_parse_float(form.get("alpha", "0.1"), 0.1),
-        gamma=_parse_float(form.get("gamma", "0.9"), 0.9),
-        epsilon=_parse_float(form.get("epsilon", "1.0"), 1.0),
-        epsilon_decay=_parse_float(form.get("epsilon_decay", "0.995"), 0.995),
-        min_epsilon=_parse_float(form.get("min_epsilon", "0.05"), 0.05),
+        episodes=preset_int("episodes"),
+        alpha=preset_float("alpha"),
+        gamma=preset_float("gamma"),
+        epsilon=preset_float("epsilon"),
+        epsilon_decay=preset_float("epsilon_decay"),
+        min_epsilon=preset_float("min_epsilon"),
     )
 
 
@@ -437,7 +473,11 @@ def _validate_config(config: StudyPlannerConfig, subject_rows: List[Dict[str, st
     return errors
 
 
-def _load_uploaded_model(upload_file, expected_shape: tuple[int, int]) -> Optional[np.ndarray]:
+def _load_uploaded_model(
+    upload_file,
+    expected_shape: tuple[int, int],
+    expected_actions: Optional[List[str]] = None,
+) -> Optional[np.ndarray]:
     if upload_file is None or not upload_file.filename:
         return None
 
@@ -446,11 +486,14 @@ def _load_uploaded_model(upload_file, expected_shape: tuple[int, int]) -> Option
         temp_path = temp_file.name
 
     try:
-        loaded = load_q_table(temp_path)
-        q_table = np.asarray(loaded["q_table"], dtype=float)
-        if q_table.shape != expected_shape:
-            return None
-        return q_table
+        if Path(temp_path).stat().st_size > 10 * 1024 * 1024:
+            raise ModelValidationError("Uploaded model exceeds the 10 MB limit.")
+        loaded = load_q_table(
+            temp_path,
+            expected_shape=expected_shape,
+            expected_actions=expected_actions,
+        )
+        return loaded["q_table"]
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
@@ -466,17 +509,19 @@ def _build_weekly_plan(time_slots: List[str], subjects: List[str], daily_schedul
             if slot_index >= len(time_slots):
                 break
 
-            if action == "Break":
+            if action in {"Break", "Meditation", "Snack", "Water_Break"}:
                 slot_map[time_slots[slot_index]] = "Break"
                 continue
 
-            if action in subjects:
-                action_index = subjects.index(action)
+            action_subject = _extract_subject(action)
+            if action_subject in subjects:
+                action_index = subjects.index(action_subject)
             else:
                 action_index = slot_index % subject_count
 
             rotated_subject = subjects[(action_index + day_index) % subject_count]
-            slot_map[time_slots[slot_index]] = rotated_subject
+            activity = action if action_subject in subjects else rotated_subject
+            slot_map[time_slots[slot_index]] = activity
 
         weekly_plan.append({"day": day_name, "slots": slot_map})
 
@@ -646,7 +691,11 @@ def run_planner(form: Dict[str, str], uploaded_model=None) -> TrainingResult:
 
     model_loaded = False
     if uploaded_model is not None and getattr(uploaded_model, "filename", ""):
-        loaded_q_table = _load_uploaded_model(uploaded_model, agent.q_table.shape)
+        loaded_q_table = _load_uploaded_model(
+            uploaded_model,
+            agent.q_table.shape,
+            expected_actions=environment.actions,
+        )
         if loaded_q_table is not None:
             agent.q_table = loaded_q_table
             model_loaded = True
@@ -673,8 +722,9 @@ def run_planner(form: Dict[str, str], uploaded_model=None) -> TrainingResult:
         seed=config.seed,
     )
     
-    if not model_loaded:
-        train_sarsa_agent(environment, sarsa_agent, config.episodes, log_interval=0)
+    # SARSA always has an independent table and training run, even when the
+    # Q-learning table was loaded from disk.
+    train_sarsa_agent(environment, sarsa_agent, config.episodes, log_interval=0)
     
     sarsa_schedule, sarsa_reward = generate_sarsa_greedy_schedule(environment, sarsa_agent)
     sarsa_schedule = _pad_schedule(sarsa_schedule, environment.time_slots)
@@ -700,10 +750,22 @@ def run_planner(form: Dict[str, str], uploaded_model=None) -> TrainingResult:
         "saved_q_table.npz",
         agent.q_table,
         [
-            f"{environment.time_slots[slot_index]} / Energy {energy_level} / {last_action_type}"
-            for slot_index, energy_level, last_action_type in environment.state_space
+            f"{environment.time_slots[slot_index]} / Energy {energy_level} / {last_action_type} / Progress {progress} / Breaks {breaks}"
+            for slot_index, energy_level, last_action_type, progress, breaks in environment.state_space
         ],
         environment.actions,
+        metadata={
+            "algorithm": "q-learning",
+            "state_encoding": "time-energy-action-progress-breaks-v2",
+            "subjects": environment.subjects,
+            "hyperparameters": {
+                "alpha": config.alpha,
+                "gamma": config.gamma,
+                "epsilon": config.epsilon,
+                "epsilon_decay": config.epsilon_decay,
+                "min_epsilon": config.min_epsilon,
+            },
+        },
     )
 
     q_table_rows: List[Dict[str, Any]] = []
@@ -903,18 +965,26 @@ def create_app() -> Flask:
         static_folder=str(project_root / "static"),
     )
     app.url_map.strict_slashes = False
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "rl-study-planner-secret-key")
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or os.urandom(32)
     # Spaces renders apps in an iframe, so session cookies must allow cross-site usage.
     app.config["SESSION_COOKIE_SAMESITE"] = "None"
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["DB_PATH"] = db_path
-    openenv = OpenEnvStudyPlanner(seed=42)
-    openenv.reset("easy-01")
+    openenv_instances: Dict[str, OpenEnvStudyPlanner] = {}
+
+    def current_openenv() -> OpenEnvStudyPlanner:
+        environment_id = session.get("openenv_id")
+        if not isinstance(environment_id, str):
+            environment_id = os.urandom(16).hex()
+            session["openenv_id"] = environment_id
+        if environment_id not in openenv_instances:
+            openenv_instances[environment_id] = OpenEnvStudyPlanner(seed=42)
+            openenv_instances[environment_id].reset("easy-01")
+        return openenv_instances[environment_id]
 
     def current_language() -> str:
-        selected = session.get("lang", "en")
-        return selected if selected in TRANSLATIONS else "en"
+        return "en"
 
     def current_user() -> Optional[Dict[str, Any]]:
         user_id = session.get("user_id")
@@ -947,12 +1017,6 @@ def create_app() -> Flask:
             return TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
 
         return {"t": t, "current_lang": lang, "user": user_data, "unread_notification_count": unread_count}
-
-    @app.get("/set-language/<lang>")
-    def set_language(lang: str):
-        if lang in TRANSLATIONS:
-            session["lang"] = lang
-        return redirect(request.referrer or url_for("index"))
 
     @app.get("/")
     def index():
@@ -1039,6 +1103,7 @@ def create_app() -> Flask:
             if user_data is None:
                 errors.append("Invalid username or password.")
             else:
+                session.clear()
                 session["user_id"] = user_data["id"]
                 return redirect(url_for("index"))
         return render_template("login.html", errors=errors, **template_globals())
@@ -1147,14 +1212,17 @@ def create_app() -> Flask:
         if not isinstance(schedule, list) or not isinstance(subjects, list):
             return {"error": "Invalid payload"}, 400
 
-        replanned = _adaptive_replan_schedule(
+        try:
+            replanned = _adaptive_replan_schedule(
             schedule=schedule,
             missed_slot_index=missed_slot_index,
             subjects=[str(item) for item in subjects],
             difficulties={str(key): int(value) for key, value in difficulties.items()},
             strengths={str(key): int(value) for key, value in strengths.items()},
             exam_date_text=exam_date,
-        )
+            )
+        except (TypeError, ValueError):
+            return {"error": "Invalid replanning values"}, 400
         return {"success": True, "schedule": replanned["schedule"], "note": replanned["note"]}
 
     @app.get("/api/notifications")
@@ -1206,13 +1274,13 @@ def create_app() -> Flask:
     def openenv_reset():
         payload = request.get_json(silent=True) or {}
         task_id = payload.get("task_id") if isinstance(payload, dict) else None
-        state = openenv.reset(task_id=task_id)
+        state = current_openenv().reset(task_id=task_id)
         return {"ok": True, "observation": state_to_dict(state)}, 200
 
     @app.get("/state")
     @app.get("/openenv/state")
     def openenv_state():
-        state = openenv.state()
+        state = current_openenv().state()
         return {"ok": True, "observation": state_to_dict(state)}, 200
 
     @app.post("/step")
@@ -1225,7 +1293,10 @@ def create_app() -> Flask:
         if not action:
             return {"ok": False, "error": "Missing action"}, 400
 
-        result = openenv.step(action)
+        try:
+            result = current_openenv().step(action)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}, 400
         return {"ok": True, **step_to_dict(result)}, 200
 
     @app.get("/validate")
@@ -1245,7 +1316,7 @@ def create_app() -> Flask:
                 "/openenv/step",
                 "/openenv/validate",
             ],
-            "tasks": openenv.tasks(),
+            "tasks": current_openenv().tasks(),
             "reward_range": [0.0, 1.0],
         }, 200
 
@@ -1258,7 +1329,7 @@ def create_app() -> Flask:
             "service": "smart-study-planner",
             "status": "ready",
             "received": payload,
-            "tasks": openenv.tasks(),
+            "tasks": current_openenv().tasks(),
             "reward_range": [0.0, 1.0],
         }, 200
 

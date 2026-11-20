@@ -20,8 +20,7 @@
         {% if user %}<a href="/analytics">{{ t('nav_analytics') }}</a>{% endif %}
       </nav>
       <div class="top-actions">
-        <a href="/set-language/en" class="lang-chip {% if current_lang == 'en' %}active{% endif %}">EN</a>
-        <a href="/set-language/hi" class="lang-chip {% if current_lang == 'hi' %}active{% endif %}">HI</a>
+        <span class="lang-chip active" aria-label="Application language">EN</span>
         {% if user and unread_notification_count %}
           <div class="notif-wrap" id="notification-wrap">
             <button type="button" class="notif-chip" id="notification-badge" aria-expanded="false" aria-controls="notification-popover">{{ unread_notification_count }} alerts</button>
@@ -135,45 +134,83 @@
         <form action="/train" method="post" enctype="multipart/form-data" class="planner-form" id="generate-form">
           <input type="hidden" name="subject_count" id="subject_count" value="{{ subject_rows|length }}">
 
-          <div class="preset-bar">
-            <span>Training preset</span>
-            <div class="preset-actions">
-              <button type="button" class="preset-button" data-preset="fast">Fast</button>
-              <button type="button" class="preset-button" data-preset="balanced">Balanced</button>
-              <button type="button" class="preset-button" data-preset="deep">Deep</button>
-            </div>
+          <input type="hidden" name="training_preset" id="training_preset" value="balanced">
+
+          <div class="training-settings-intro">
+            <p class="eyebrow">AI training settings</p>
+            <h3>How much practice should your planner do?</h3>
+            <p class="muted-copy">Choose a ready-made option. You do not need to understand AI settings to get started.</p>
           </div>
+
+          <div class="preset-cards" role="radiogroup" aria-label="Training intensity">
+            <button type="button" class="preset-card" data-preset="quick" role="radio" aria-checked="false">
+              <span class="preset-icon" aria-hidden="true">⚡</span>
+              <span class="preset-card-copy">
+                <strong>Quick</strong>
+                <small>Faster setup for a quick plan.</small>
+              </span>
+            </button>
+            <button type="button" class="preset-card recommended active" data-preset="balanced" role="radio" aria-checked="true">
+              <span class="preset-icon" aria-hidden="true">◎</span>
+              <span class="preset-card-copy">
+                <strong>Balanced <em>Recommended</em></strong>
+                <small>A dependable middle ground for most students.</small>
+              </span>
+            </button>
+            <button type="button" class="preset-card" data-preset="deep" role="radio" aria-checked="false">
+              <span class="preset-icon" aria-hidden="true">✦</span>
+              <span class="preset-card-copy">
+                <strong>Deep Learning</strong>
+                <small>More practice for students who want to experiment.</small>
+              </span>
+            </button>
+          </div>
+          <p class="training-note">These options change how long and how widely the AI practices. They do not guarantee a better schedule.</p>
 
           <div class="field-row">
             <label for="exam_date">Exam date</label>
             <input type="date" id="exam_date" name="exam_date" value="{{ exam_date_value }}">
           </div>
 
-          <div class="field-grid four">
-            <div class="field-row">
-              <label for="episodes">Training episodes</label>
-              <input type="number" id="episodes" name="episodes" value="{{ default_episodes }}" min="100" step="50">
+          <details class="advanced-settings">
+            <summary><span>Advanced Training Settings</span><small>Optional — for curious users</small></summary>
+            <div class="field-grid four">
+              <div class="field-row">
+                <label for="episodes">Training Episodes</label>
+                <small>How many practice rounds the AI will complete.</small>
+                <input type="number" id="episodes" name="episodes" value="{{ default_episodes }}" min="100" max="10000" step="50">
+              </div>
+              <div class="field-row">
+                <label for="alpha">Learning Rate</label>
+                <small>How quickly the AI updates what it has learned.</small>
+                <input type="number" id="alpha" name="alpha" value="{{ default_alpha }}" min="0.01" max="1" step="0.01">
+              </div>
+              <div class="field-row">
+                <label for="gamma">Discount Factor</label>
+                <small>How much importance the AI gives to future rewards.</small>
+                <input type="number" id="gamma" name="gamma" value="{{ default_gamma }}" min="0.1" max="0.99" step="0.01">
+              </div>
+              <div class="field-row">
+                <label for="epsilon">Exploration (Epsilon)</label>
+                <small>How much the AI explores different study strategies.</small>
+                <input type="number" id="epsilon" name="epsilon" value="{{ default_epsilon }}" min="0.01" max="1" step="0.01">
+              </div>
+              <div class="field-row">
+                <label for="epsilon_decay">Exploration Decay</label>
+                <small>How gradually the AI reduces exploration.</small>
+                <input type="number" id="epsilon_decay" name="epsilon_decay" value="{{ default_epsilon_decay }}" min="0.90" max="0.999" step="0.001">
+              </div>
+              <div class="field-row">
+                <label for="min_epsilon">Minimum Exploration</label>
+                <small>The minimum exploration retained during training.</small>
+                <input type="number" id="min_epsilon" name="min_epsilon" value="{{ default_min_epsilon }}" min="0.01" max="0.2" step="0.01">
+              </div>
             </div>
-            <div class="field-row">
-              <label for="alpha">Learning rate</label>
-              <input type="number" id="alpha" name="alpha" value="{{ default_alpha }}" min="0.01" step="0.01">
-            </div>
-            <div class="field-row">
-              <label for="gamma">Discount factor</label>
-              <input type="number" id="gamma" name="gamma" value="{{ default_gamma }}" min="0.1" max="0.99" step="0.01">
-            </div>
-            <div class="field-row">
-              <label for="epsilon">Epsilon</label>
-              <input type="number" id="epsilon" name="epsilon" value="{{ default_epsilon }}" min="0.01" max="1" step="0.01">
-            </div>
-            <div class="field-row">
-              <label for="epsilon_decay">Epsilon decay</label>
-              <input type="number" id="epsilon_decay" name="epsilon_decay" value="{{ default_epsilon_decay }}" min="0.90" max="0.999" step="0.001">
-            </div>
-            <div class="field-row">
-              <label for="min_epsilon">Min epsilon</label>
-              <input type="number" id="min_epsilon" name="min_epsilon" value="{{ default_min_epsilon }}" min="0.01" max="0.2" step="0.01">
-            </div>
+          </details>
+
+          <div class="training-summary" id="training-summary" aria-live="polite">
+            <strong>Balanced selected</strong>
+            <span>1,500 practice rounds with a balanced learning approach.</span>
           </div>
 
           <div class="upload-box">
